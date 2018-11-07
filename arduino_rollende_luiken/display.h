@@ -1,3 +1,11 @@
+/*
+ * display.h
+ *
+ *  Author: Hanzehogeschool
+ */ 
+
+#include <avr/io.h>
+
 #ifndef DISPLAY_H_INCLUDED
 #define DISPLAY_H_INCLUDED
 

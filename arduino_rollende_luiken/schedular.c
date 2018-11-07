@@ -1,13 +1,12 @@
-
 /*
-* schedular.s
-*
-* Created: 5-11-2018 11:49:09
-*  Author: 
-*/
-#include <avr/io.h>
-#include <avr/interrupt.h>
+ * schedular.c
+ *
+ *  Author: Hanzehogeschool
+ */
+
 #include "schedular.h"
+
+
 // The array of tasks
 sTask SCH_tasks_G[SCH_MAX_TASKS];
 
