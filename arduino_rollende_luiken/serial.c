@@ -44,10 +44,29 @@ unsigned char uartrecieve(unsigned char *x, unsigned char size)
 }
 
 // function to send data
-void uart_transmit (unsigned char data)
+void uart_transmit_char (unsigned char data)	// send as char, example: data=126 -> python receives '~'
 {
-	while (!( UCSR0A & (1<<UDRE0)));              // wait while register is free	
+	while (!( UCSR0A & (1<<UDRE0)));            // wait while register is free
 	UDR0 = data;
+}
+
+void uart_transmit_int(unsigned int data) {	// send as int, example: data=3 -> python receives '3'
+	float honderdtal = data / 100;
+	if (honderdtal >= 1) {
+		honderdtal += 48;
+		uart_transmit_char(honderdtal);
+	}
+	
+	float tiental = data % 100;
+	tiental = tiental / 10;
+	if (tiental >= 1) {
+		tiental += 48;
+		uart_transmit_char(tiental);
+	}
+	
+	int rest = data % 10;
+	rest += 48;
+	uart_transmit_char(rest);
 }
 
 void serialSend(char* sendString){

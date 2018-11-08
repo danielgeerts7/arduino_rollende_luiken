@@ -5,13 +5,15 @@
  *  Author: Daniel Geerts && Florian Molenaars
  */ 
 
-
+#include <stdio.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
 #include "display.h"
 #include "schedular.h"
 #include "serial.h"
+
+static int ID = 0;			// ID of device
 
 // PD
 const int trigPin = 2;		// Trigger		PD2
@@ -34,8 +36,12 @@ uint8_t light_max = 130;			//max light intensity
 uint8_t light_min = 40;				//min light intensity
 
 // setting up mode for arduino
-typedef enum{ROLLING_UP= 0, ROLLING_DOWN = 1, WAITING = 2} mode_t;
+typedef enum{ROLLING_UP = 0, ROLLING_DOWN = 1, WAITING = 2, STOP_ROLLING = 3} mode_t;
 mode_t mode = WAITING;
+
+// setting up modes for received requests from python
+typedef enum{ERROR = -1, COMMANDO = 0, ROLLER = 1, LIGHT = 2, TEMPERATURE = 3} data_mode;
+data_mode d_modes = ERROR;
 
 void init_ports(void)
 {
@@ -94,67 +100,132 @@ void check_light()
 	}						
 }
 
-
-void send_data_serial() {
-	char to_send = 1;
-	if (to_send >= 0 && to_send <= 9) {
-		to_send += 48;
-	}
-	uart_transmit(to_send);		// Identieve as Arduino 0
-	to_send++;
-	uart_transmit(to_send);		// Send light_sensor data
-	to_send++;
-	uart_transmit(to_send);		// Send tempareture_sensor data
-	
-	_delay_ms(500);
+int from_ascii_to_digit(char a) {
+	return a - 48;
 }
 
+int pow(int x,int n)
+{
+	int i; /* Variable used in loop counter */
+	int number = 1;
 
-void set_display_on_serial() {
-	char data;
-	char len;
+	for (i = 0; i < n; ++i)
+	number *= x;
+
+	return(number);
+}
+
+void check_received() {
 	
-	char raw_chr = uart_recieve();	// Receive raw hex data
-	/*
-	//show_distance(raw_hex);
-	if (raw_hex >= 48 && raw_hex <= 122) {
-		if (raw_hex >= 48 && raw_hex <= 57) {
-			data = raw_hex - 48;
-		} else {
-			data = raw_hex - 97;
-			if (data <= 0) {				// a
-				data = 'a';
-			} else if (data == 1) {			// b
-				data = 'b';
-			} else if (data == 2) {			// c
-				data = 'c';
-			} else if (data == 3) {			// d
-				data = 'd';
-			} else if (data == 4) {			// e
-				data = 'e';
-			} else if (data == 5) {			// f
-				data = 'f';
-			}
+	uint8_t r = uart_recieve();
+	_delay_us(25);
+	uart_transmit_char(r);
+	
+	if (r == 38) {				// ASCII &
+		d_modes = COMMANDO;
+	}
+	else if (r == 35) {			// ASCII #
+		d_modes = ROLLER;
+	}
+	else if (r == 36) {			// ASCII $
+		d_modes = LIGHT;
+	}
+	else if (r == 37) {			// ASCII %
+		d_modes = TEMPERATURE;
+	} else {
+		d_modes = ERROR;
+	}
+
+	uint8_t result = 0;
+	uint8_t received = 0;
+	uint8_t running = 1;
+	
+	if (d_modes != ERROR) {
+		switch (d_modes) {
+			case COMMANDO:
+				received = uart_recieve();
+				_delay_us(25);
+				uart_transmit_char(received);
+				if (received >= 48 && received <= 57) {	// ASCII 0-9
+					result = from_ascii_to_digit(received);
+					ID = result;
+				} else if (received == 100) {		// ASCII d
+					mode = ROLLING_DOWN;
+				} else if (received == 117) {		// ASCII u
+					mode = ROLLING_UP;
+				} else if (received == 115) {		// ASCII s
+					mode = STOP_ROLLING;
+				}
+				break;
+			case ROLLER:
+				received = 0;
+				uint8_t isMin = 1;
+				uint8_t min[3];
+				uint8_t max[3];
+				uint8_t mincount = 0;
+				uint8_t maxcount = 0;
+				
+				while (running == 1) {
+					received = uart_recieve();
+					_delay_us(25);
+					uart_transmit_char(received);
+					if (received != 35) {
+						if (received >= 48 && received <= 57) {			// ASCII 0-9
+							if (isMin == 1) {
+								result = from_ascii_to_digit(received);
+								min[mincount] = result;
+								mincount++;
+							} else {
+								result = from_ascii_to_digit(received);
+								max[maxcount] = result;
+								maxcount++;
+							}
+						}
+						if (received == 46 && isMin == 1) {							// ASCII .
+							isMin = 0;
+						}
+					}						
+					if (received == 35 && isMin == 0) {							// ASCII #
+						running = 0;
+					}				
+				}
+				
+				uint8_t minimal = 0;
+				uint8_t maximal = 0;
+				
+				for (int i = 0; i < mincount; i++)
+				{
+					uint8_t temp = pow(10, mincount-i-1);
+					minimal += min[i] * temp;
+				}
+				for (int j = 0; j < maxcount; j++)
+				{
+					uint8_t temp = pow(10, mincount-j-1);
+					maximal += max[j] * temp;
+				}
+				
+				distant_min = minimal;
+				distant_max = maximal;
+				uart_transmit_char('#');
+				uart_transmit_int(distant_min);
+				uart_transmit_char('.');
+				uart_transmit_int(distant_max);
+				uart_transmit_char('#');
+			break;
+			case LIGHT:
+			ID = 7;
+			break;
+			case TEMPERATURE:
+			ID = 8;
+			break;
 		}
 	}
-	*/
-	
-	_delay_us(25);
-	
-	if (raw_chr == 1) {						// receive 1 from serial? roll the shutter DOWN
-		mode = ROLLING_DOWN;
-	} else if (raw_chr == 2) {					// receive 2 from serial? roll the shutter UP
-		mode = ROLLING_UP;
-	}
-	
-	uart_transmit(raw_chr);	
-	_delay_ms(250);
 }
 
 void roll_down(void)
 {
 	while(distance <= distant_max){
-		PORTD ^= (1 << YELLOW_LED);;
+		PORTD ^= (1 << YELLOW_LED);
 		
 		if(distance >= distant_max || distance <= distant_min)
 		{
@@ -174,7 +245,7 @@ void roll_down(void)
 void roll_up(void)
 {
 	while(distance >= distant_min){
-		PORTD |= (1 << YELLOW_LED);
+		PORTD ^= (1 << YELLOW_LED);
 		
 		if(distance >= distant_max || distance <= distant_min)
 		{
@@ -198,7 +269,7 @@ uint16_t calc_cm(uint16_t counter)
 	return (microSec/58.2);
 }
 
-void measurement_distance() 
+void measure_distance() 
 {
 	gv_echo = BEGIN;	// Set gv_echo to BEGIN
 	PORTD |= _BV(trigPin);	// Set trigPin to 1 -> send pulse
@@ -211,9 +282,8 @@ void measurement_distance()
 	show_distance(distance);
 }
 
-
 int main(void)
-{
+{	
 	init_ext_int();		// Init external interrupts (INT1)
 	SCH_Init_T0();		// Init schedular (Timer0)
 	init_ports();		// Init ports
@@ -222,10 +292,10 @@ int main(void)
 	
 	int tasks[5];
 	
-	tasks[0] = SCH_Add_Task(check_light,0,100);				// check light intensity every 10ms * 100 = 1 sec with zero delay
-	//tasks[1] = SCH_Add_Task(send_data_serial, 0, 30);		// send data over serial every 10ms * 30 = 0.3 sec with zero delay
-	tasks[2] = SCH_Add_Task(set_display_on_serial, 0, 20);	// send data over serial every 10ms * 20 = 0.2 sec with zero delay
-	
+	//tasks[0] = SCH_Add_Task(check_light,0,100);				// check light intensity every 10ms * 100 = 1sec with zero delay
+	tasks[1] = SCH_Add_Task(check_received,0,2);				// check every 10ms * 2 = 20ms if python has updated some data
+																// 1000ms/20ms = 50 pakketjes per seconde worden er verstuurd
+	2
 	sei();				// Set interrupt flag
 	_delay_ms(50);		// Make sure everything is initialized
 	
@@ -245,8 +315,12 @@ int main(void)
 			case ROLLING_UP:
 				roll_up();
 				break;
+			case STOP_ROLLING:
+				show_distance(distance);
+				PORTD ^= (1 << YELLOW_LED);
+				break;
 			case WAITING:
-				measurement_distance();
+				measure_distance();
 				break;
 		}
 		
