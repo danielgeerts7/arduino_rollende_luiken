@@ -23,26 +23,6 @@ unsigned char uart_recieve (void)
 	return UDR0;                                   // return 8-bit data
 }
 
-unsigned char uartrecieve(unsigned char *x, unsigned char size)
-{
-	unsigned char i = 0;
-
-	if (size == 0) return 0;            // return 0 if no space
-
-	while (i < size - 1) {              // check space is available (including additional null char at end)
-		unsigned char c;
-		while ( !(UCSR0A & (1<<RXC0)) );  // wait for another char - WARNING this will wait forever if nothing is received
-		c = UDR0;
-		if (c == '\0') break;           // break on NULL character
-		x[i] = c;                       // write into the supplied buffer
-		x[i] = UDR0;
-		i++;
-	}
-	x[i] = 0;                           // ensure string is null terminated
-
-	return i + 1;                       // return number of characters written
-}
-
 // function to send data
 void uart_transmit_char (unsigned char data)	// send as char, example: data=126 -> python receives '~'
 {
@@ -50,7 +30,7 @@ void uart_transmit_char (unsigned char data)	// send as char, example: data=126 
 	UDR0 = data;
 }
 
-void uart_transmit_int(unsigned int data) {	// send as int, example: data=3 -> python receives '3'
+void uart_transmit_int(unsigned int data) {		// send as int, example: data=3 -> python receives '3'
 	float honderdtal = data / 100;
 	if (honderdtal >= 1) {
 		honderdtal += 48;
@@ -69,9 +49,75 @@ void uart_transmit_int(unsigned int data) {	// send as int, example: data=3 -> p
 	uart_transmit_char(rest);
 }
 
-void serialSend(char* sendString){
-	for (int i = 0; i < strlen(sendString); i++){
-		while (( UCSR0A & (1<<UDRE0))  == 0){};
-		UDR0 = sendString[i];
+int from_ascii_to_digit(char a){
+	return a - 48;
+}
+
+int calc_to_the_power(int nr_scale, int exponent)
+{
+	int power = 1;
+
+	for (int i = 0; i < exponent; ++i) {
+		power *= nr_scale;
 	}
+
+	return(power);
+}
+
+uint16_t sum_array_elements(uint8_t size, uint8_t list[]) {
+	uint16_t result = 0;
+	
+	for (int i = 0; i < size; i++)
+	{
+		uint16_t temp = calc_to_the_power(10, size-i-1);
+		result += list[i] * temp;
+	}
+	return result;
+}
+
+uint8_t* send_data_to_pyhton(uint8_t from_sensor) {
+	uint8_t running = 1;
+	uint8_t isMin = 1;
+	uint8_t mincount = 0;
+	uint8_t maxcount = 0;
+	uint8_t result = 0;
+	uint8_t min[3];
+	uint8_t max[3];
+	uint8_t received = 0;
+	
+	while (running == 1 && from_sensor != -1) {
+		received = 0;
+		received = uart_recieve();
+		_delay_us(15);
+		uart_transmit_char(received);
+		
+		if (received != from_sensor) {
+			if (received >= 48 && received <= 57) {			// ASCII 0-9
+				if (isMin == 1) {
+					result = from_ascii_to_digit(received);
+					min[mincount] = result;
+					mincount++;
+				} else {
+					result = from_ascii_to_digit(received);
+					max[maxcount] = result;
+					maxcount++;
+				}
+			}
+			if (received == 46 && isMin == 1) {				// ASCII .
+				isMin = 0;
+			}
+		}
+		if (received == from_sensor && isMin == 0) {
+			running = 0;
+		}
+	}
+	
+	uint8_t minimal = sum_array_elements(mincount, min);
+	uint8_t maximal = sum_array_elements(maxcount, max);
+	
+	uint8_t* t = malloc(2);
+	t[0] = minimal;
+	t[1] = maximal;
+	
+	return t;
 }
