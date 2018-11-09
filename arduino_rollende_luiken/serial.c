@@ -75,7 +75,7 @@ uint16_t sum_array_elements(uint8_t size, uint8_t list[]) {
 	return result;
 }
 
-uint8_t* send_data_to_pyhton(uint8_t from_sensor) {
+uint8_t* insert_data_from_pyhton(uint8_t from_sensor) {
 	uint8_t running = 1;
 	uint8_t isMin = 1;
 	uint8_t mincount = 0;
@@ -89,7 +89,7 @@ uint8_t* send_data_to_pyhton(uint8_t from_sensor) {
 		received = 0;
 		received = uart_recieve();
 		_delay_us(15);
-		uart_transmit_char(received);
+		//uart_transmit_char(received);
 		
 		if (received != from_sensor) {
 			if (received >= 48 && received <= 57) {			// ASCII 0-9

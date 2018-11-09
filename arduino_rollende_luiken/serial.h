@@ -22,6 +22,6 @@ unsigned char uart_recieve(void);
 void uart_transmit_char(unsigned char data);
 void uart_transmit_int(unsigned int data);
 void serialSend(char* sendString);
-uint8_t* send_data_to_pyhton(uint8_t from_sensor);
+uint8_t* insert_data_from_pyhton(uint8_t from_sensor);
 
 #endif /* SERIAL_H_ */
