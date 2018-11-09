@@ -2,7 +2,10 @@
  * arduino_rollende_luiken.c
  *
  * Created: 30-Oct-18 12:21:19
- *  Author: Daniel Geerts && Florian Molenaars
+ * Author: Daniël Geerts && Florian Molenaars
+ * This code is written for the arduino 328p, it's code for operating a distance sensor,
+ * temperature sensor and a light sensor. It has a schedular to opatere these sensors at the right time.
+ * This can communicate with python software developed by the 'rollende luiken'.
  */ 
 
 #include <stdio.h>
@@ -21,19 +24,21 @@ const int echoPin = 3;		// Echo			PD3
 const int RED_LED = 4;		// Red LED		PD4
 const int YELLOW_LED = 5;	// Yellow LED	PD5
 const int GREEN_LED = 6;	// Green LED	PD6
-//PA
-const int LightSensor = 0;  // lightsensor  PA0
+const int lightSensor = 0;  // light sensor  PA0
+const int temperature_sensor = 1;  // Temperature_sensor  PA1
 
 volatile uint16_t gv_counter;		// 16 bit counter value
 volatile uint8_t gv_echo;			// a flag
-volatile uint8_t light_sensitivity; // brightness of the outside world 
+volatile double light_sensitivity = -1; //value of light sensivity
 volatile uint16_t distance;			// distance of roller shutter
-
+volatile double temperature;  //temperature in Celsius
 // Default values of the maximal and minimal variables
 uint8_t distant_max = 65;			//max distant roller shutter
 uint8_t distant_min = 5;			//min distant roller shutter
-uint8_t light_max = 130;			//max light intensity
-uint8_t light_min = 40;				//min light intensity
+uint8_t light_min = 15;		//min light intensity
+uint16_t light_max = 65;	//max light intensity
+uint16_t temperature_max = 30; // set max temperature
+uint8_t temperature_min = 10;	// set minimum temperature
 
 // setting up mode for arduino
 typedef enum{ROLLING_UP = 0, ROLLING_DOWN = 1, WAITING = 2, STOP_ROLLING = 3} mode_t;
@@ -64,39 +69,90 @@ void init_ext_int(void)
 }
 
 
-void init_adc()
+
+
+double calc_temperature(double adc_value)
 {
-	// ref=Vcc, left adjust the result (8 bit resolution),
-	// select channel 0 (PC0 = input)
-	ADMUX = (1<<REFS0)|(1<<ADLAR);
-	// enable the ADC & prescale = 128
-	ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
+	adc_value = adc_value * (5.0/1023);		// calculate value to volt
+	adc_value = adc_value - 0.5;			// convert to celcius
+	adc_value = adc_value * 100;			
+	return adc_value;
 }
 
 
-uint8_t get_adc_value()
+double calc_ligth(double light)
 {
+	light = light / 1023;			// calculate to volt
+	light = light * 100;			// to percentage
+	return light;
+}
+
+
+void init_adc()
+{
+	// turn on channels
+	ADMUX = (1<<REFS0);
+	 //enable the ADC & prescale = 128
+	ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
+}
+	
+
+uint16_t get_adc_value(uint8_t ADC_port)
+{
+	// Clear the previously read channel.
+	ADC_port &= 0b0000111;
+	ADMUX = (ADMUX & 0xF8) | ADC_port;
 	ADCSRA |= (1<<ADSC); // start conversion
-	loop_until_bit_is_clear(ADCSRA, ADSC);
-	return ADCH; // 8-bit resolution, left adjusted
+	while(ADCSRA & (1<<ADSC));
+	//loop_until_bit_is_clear(ADCSRA, ADSC);
+	return ADC; // 8-bit resolution, left adjusted
+}
+
+
+void check_temperature()
+{	
+	double temp = get_adc_value(temperature_sensor); // get value from adc port
+	temperature = calc_temperature(temp);			 // calculate the temperature	
+							 
+	if (temperature >= temperature_max)				 // compare temperature to decide if
+	{												 // the rolling shutter needs to roll down or roll up
+		mode = ROLLING_DOWN;
+	}
+	else if (temperature <= temperature_min)
+	{
+		mode = ROLLING_UP;
+	} 
+	else 
+	{
+		mode = WAITING;
+	}
+	
+	_delay_ms(100);
+	return temperature;
 }
 
 
 void check_light()
 {
 	uint8_t temp = light_sensitivity;
-	light_sensitivity = get_adc_value();
+	light_sensitivity = get_adc_value(lightSensor);
+	light_sensitivity = calc_ligth(light_sensitivity);
+
 	_delay_ms(100);
 	
 	if (light_sensitivity > 5)
 	{
-		//if (temp > 0) {
-			//light_sensitivity = (light_sensitivity + temp) / 2;
-		//}
-		if (light_sensitivity >= light_max) {
+		if (light_sensitivity >= light_max)
+		{
 			mode = ROLLING_DOWN;
-		} else if (light_sensitivity <= light_min) {
+		}
+		else if (light_sensitivity <= light_min)
+		{
 			mode = ROLLING_UP;
+		}			
+		else
+		{
+			mode = WAITING;
 		}
 	}						
 }
@@ -123,7 +179,7 @@ void check_received() {
 		case NONE:
 			d_modes = NONE;
 		break;
-	}
+		}
 	
 	uint8_t *data;
 	if (d_modes != NONE) {
@@ -163,14 +219,17 @@ void check_received() {
 				d_modes = NONE;
 			break;
 		}
-	}
-}
+	}	
+}		
+
+					
+
 
 void roll_down(void)
 {
-	while(distance <= distant_max){
+	while(distance <= distant_max && mode != STOP_ROLLING)
+	{
 		PORTD ^= (1 << YELLOW_LED);
-		
 		if(distance >= distant_max || distance <= distant_min)
 		{
 			PORTD &= ~(1 << YELLOW_LED);
@@ -186,9 +245,9 @@ void roll_down(void)
 
 void roll_up(void)
 {
-	while(distance >= distant_min){
+	while(distance >= distant_min && mode != STOP_ROLLING)
+	{
 		PORTD ^= (1 << YELLOW_LED);
-		
 		if(distance >= distant_max || distance <= distant_min)
 		{
 			PORTD &= ~(1 << YELLOW_LED);
@@ -232,15 +291,17 @@ int main(void)
 	
 	int tasks[5];
 	
+	SCH_Init_T0();	 // Enable scheduler
 	// check light intensity every 10ms * 100 = 1sec with zero delay
-	//tasks[0] = SCH_Add_Task(check_light,0,100);
+	tasks[0] = SCH_Add_Task(check_light,0,100); // check light intensity
+	tasks[1] = SCH_Add_Task(check_temperature,0,200); // check temperature in celcius
 	
 	// check every 10ms * 2 = 20ms if python has updated some data
 	// 1000ms/20ms = 50 pakketjes per seconde worden er verstuurd
-	tasks[1] = SCH_Add_Task(check_received,0,5);				
+	tasks[2] = SCH_Add_Task(check_received,0,5);				
 	
 	sei();				// Set interrupt flag
-	_delay_ms(50);		// Make sure everything is initialized
+	_delay_ms(50);	 // Make sure everything is initialized
 	
 	reset_display();	// Clear display
 	
@@ -280,7 +341,8 @@ int main(void)
 		
 	}
 	
-	for (int t = 0; t < tasks; t++) {
+	for (int t = 0; t < tasks; t++)
+	{
 		SCH_Delete_Task(tasks[t]);
 	}
 
@@ -292,11 +354,14 @@ int main(void)
 
 ISR(INT1_vect)
 {	
-	if (gv_echo == BEGIN) {
+	if (gv_echo == BEGIN)
+	{
 		TCNT1 = 0;
 		TCCR1B = _BV(CS10);
 		gv_echo = END;
-	} else {
+	} 
+	else
+	{
 		TCCR1B = 0;
 		gv_counter = TCNT1;
 	}
