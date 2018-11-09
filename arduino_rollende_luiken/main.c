@@ -161,7 +161,7 @@ void check_received() {
 	
 	uint8_t r = uart_recieve();
 	_delay_us(25);
-	uart_transmit_char(r);
+	//uart_transmit_char(r);
 	
 	switch (r) {
 		case ROLLER:
@@ -185,14 +185,14 @@ void check_received() {
 	if (d_modes != NONE) {
 		switch (d_modes) {
 			case ROLLER:
-				data = send_data_to_pyhton(ROLLER);
+				data = insert_data_from_pyhton(ROLLER);
 				distant_min = data[0];
 				distant_max = data[1];
 				free(data);
 				d_modes = NONE;
 			break;
 			case LIGHT:	
-				data = send_data_to_pyhton(LIGHT);
+				data = insert_data_from_pyhton(LIGHT);
 				light_min = data[0];
 				light_max = data[1];
 				free(data);
@@ -204,9 +204,10 @@ void check_received() {
 			break;
 			case COMMANDO:
 				_delay_us(25);
+				
 				uint8_t received = uart_recieve();
 				_delay_us(50);
-				uart_transmit_char(received);
+				//uart_transmit_char(received);
 				if (received >= 48 && received <= 57) {	// ASCII 0-9
 					ID = from_ascii_to_digit(received);
 				} else if (received == 100) {		// ASCII d
@@ -216,10 +217,33 @@ void check_received() {
 				} else if (received == 115) {		// ASCII s
 					mode = STOP_ROLLING;
 				}
+								
 				d_modes = NONE;
 			break;
 		}
 	}	
+	d_modes = NONE;
+}
+
+void send_info() {
+	
+	uart_transmit_char('#');
+	uart_transmit_int(ID);
+	uart_transmit_char('.');
+	uart_transmit_int(distance);
+	uart_transmit_char('#');
+	
+	uart_transmit_char('$');
+	uart_transmit_int(ID);
+	uart_transmit_char('.');
+	uart_transmit_int(light_sensitivity);
+	uart_transmit_char('$');
+	
+	uart_transmit_char('%');
+	uart_transmit_int(ID);
+	uart_transmit_char('.');
+	uart_transmit_int(25);							// change to variable temperature
+	uart_transmit_char('%');
 }		
 
 					
@@ -293,12 +317,14 @@ int main(void)
 	
 	SCH_Init_T0();	 // Enable scheduler
 	// check light intensity every 10ms * 100 = 1sec with zero delay
-	tasks[0] = SCH_Add_Task(check_light,0,100); // check light intensity
+	tasks[0] = SCH_Add_Task(check_light,0,100);
 	tasks[1] = SCH_Add_Task(check_temperature,0,200); // check temperature in celcius
 	
 	// check every 10ms * 2 = 20ms if python has updated some data
 	// 1000ms/20ms = 50 pakketjes per seconde worden er verstuurd
 	tasks[2] = SCH_Add_Task(check_received,0,5);				
+	
+	tasks[3] = SCH_Add_Task(send_info,0,100);	// 10ms * 100 = 1000ms = 1sec		
 	
 	sei();				// Set interrupt flag
 	_delay_ms(50);	 // Make sure everything is initialized
@@ -321,7 +347,7 @@ int main(void)
 				break;
 			case STOP_ROLLING:
 				show_distance(distance);
-				PORTD ^= (1 << YELLOW_LED);
+				PORTD &= ~(1 << YELLOW_LED);
 				break;
 			case WAITING:
 				measure_distance();
