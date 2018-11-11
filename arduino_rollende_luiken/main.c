@@ -16,22 +16,23 @@
 #include "schedular.h"
 #include "serial.h"
 
-static int ID = 0;			// ID of device
+static int ID = 1;					// ID of device
 
 // PD
-const int trigPin = 2;		// Trigger		PD2
-const int echoPin = 3;		// Echo			PD3
-const int RED_LED = 4;		// Red LED		PD4
-const int YELLOW_LED = 5;	// Yellow LED	PD5
-const int GREEN_LED = 6;	// Green LED	PD6
-const int lightSensor = 0;  // light sensor  PA0
-const int temperature_sensor = 1;  // Temperature_sensor  PA1
+const int trigPin = 2;				// Trigger		PD2
+const int echoPin = 3;				// Echo			PD3
+const int RED_LED = 4;				// Red LED		PD4
+const int YELLOW_LED = 5;			// Yellow LED	PD5
+const int GREEN_LED = 6;			// Green LED	PD6
+const int lightSensor = 0;			// light sensor  PA0
+const int temperature_sensor = 1;	// Temperature_sensor  PA1
 
 volatile uint16_t gv_counter;		// 16 bit counter value
 volatile uint8_t gv_echo;			// a flag
-volatile double light_sensitivity = -1; //value of light sensivity
 volatile uint16_t distance;			// distance of roller shutter
-volatile double temperature;  //temperature in Celsius
+volatile double light_sensitivity;	//value of light sensitivity
+volatile double temperature;		//temperature in Celsius
+
 // Default values of the maximal and minimal variables
 uint8_t distant_max = 65;			//max distant roller shutter
 uint8_t distant_min = 5;			//min distant roller shutter
@@ -49,6 +50,9 @@ mode_t mode = WAITING;
 typedef enum{NONE = -1, ROLLER = 35, LIGHT = 36, TEMPERATURE = 37, COMMANDO = 38} data_mode;
 data_mode d_modes = NONE;
 
+/*
+ * initialize PORTB and PORTD
+ */
 void init_ports(void)
 {
 	// Set Trigger to OUTPUT, Echo to INPUT, Red LED to OUTPUT, Yellow LED to OUTPUT, Green LED to OUTPUT
@@ -60,7 +64,9 @@ void init_ports(void)
 	sendCommand(0x89); // activate and set brightness to medium
 }
 
-
+/*
+ * initialize external interrupt 1
+ */ 
 void init_ext_int(void)
 {
 	// any change triggers ext interrupt 1
@@ -68,52 +74,105 @@ void init_ext_int(void)
 	EIMSK = (1 << INT1);
 }
 
-
-
-
-double calc_temperature(double adc_value)
-{
-	adc_value = adc_value * (5.0/1023);		// calculate value to volt
-	adc_value = adc_value - 0.5;			// convert to celcius
-	adc_value = adc_value * 100;			
-	return adc_value;
-}
-
-
-double calc_ligth(double light)
-{
-	light = light / 1023;			// calculate to volt
-	light = light * 100;			// to percentage
-	return light;
-}
-
-
-void init_adc()
+/*
+ * initialize ADC (analog-digital-converter)
+ */
+void init_adc(void)
 {
 	// turn on channels
 	ADMUX = (1<<REFS0);
 	 //enable the ADC & prescale = 128
 	ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
 }
-	
 
-uint16_t get_adc_value(uint8_t ADC_port)
+/*
+ * read value from PADC
+ * parameter: ADC_pin is a 0-7 option to choose a pin to read
+ */
+uint16_t get_adc_value(uint8_t ADC_pin)
 {
 	// Clear the previously read channel.
-	ADC_port &= 0b0000111;
-	ADMUX = (ADMUX & 0xF8) | ADC_port;
+	ADC_pin &= 0b0000111;
+	ADMUX = (ADMUX & 0xF8) | ADC_pin;
 	ADCSRA |= (1<<ADSC); // start conversion
 	while(ADCSRA & (1<<ADSC));
 	//loop_until_bit_is_clear(ADCSRA, ADSC);
+	if (PORTC | ADC_pin != ADC_pin) {
+		return -1;
+	}
 	return ADC; // 8-bit resolution, left adjusted
 }
 
+/*
+ * calculation from a time in microseconds to centimeters
+ * parameter: counter is time in microseconds (us)
+ */
+uint16_t calc_cm(uint16_t counter)
+{
+	// Min 2cm - Max 70cm
+	uint16_t microSec = counter / 16;
+	return (microSec/58.2);
+}
 
-void check_temperature()
+/*
+ * calculation of temperature
+ * parameter: adc_value is raw data from the TP36 sensor
+ */
+double calc_temperature(double adc_value)
+{
+	adc_value = adc_value * (5.0/1023);		// calculate value to volt
+	adc_value = adc_value - 0.5;			// convert to celcius
+	adc_value = adc_value * 100;
+	return adc_value;
+}
+
+/*
+ * calculation of light sensitivity
+ * parameter: adc_value is raw data from the light sensor
+ */
+double calc_ligth(double adc_value)
+{
+	adc_value = adc_value / 1023;			// calculate to volt
+	adc_value = adc_value * 100;			// to percentage
+	return adc_value;
+}
+
+/*
+ * send pulse trough Trigger on HC-SR04
+ * show distance on led&key screen
+ */
+void measure_distance(void)
+{
+	gv_echo = BEGIN;			// Set gv_echo to BEGIN
+	PORTD |= _BV(trigPin);		// Set trigPin to 1 -> send pulse
+	_delay_us(12);				// Wait for pulse to complete
+	PORTD &= ~(1<<trigPin);		// Clear PORTD (trigPin & LEDs)
+	_delay_ms(30);				// Wait to make sure the signal of the pulse has been returned to echo
+	
+	distance = calc_cm(gv_counter);
+	show_distance(distance);
+}
+
+/*
+ * check if temperature is normal,
+ * when to high or low act on it
+ */
+void check_temperature(void)
 {	
-	double temp = get_adc_value(temperature_sensor); // get value from adc port
-	temperature = calc_temperature(temp);			 // calculate the temperature	
-							 
+	// first calculate the average over 2 measurement times
+	uint8_t temp = temperature_sensor;
+	double raw_value = get_adc_value(temperature_sensor); // get value from adc port
+	if (raw_value == -1)
+	{
+		return;
+	}
+	if (temp > 0) {
+		temp = temp + raw_value;
+		raw_value = temp / 2;
+	}
+	
+	temperature = calc_temperature(raw_value);			 // calculate the temperature	
+	
 	if (temperature >= temperature_max)				 // compare temperature to decide if
 	{												 // the rolling shutter needs to roll down or roll up
 		mode = ROLLING_DOWN;
@@ -121,49 +180,52 @@ void check_temperature()
 	else if (temperature <= temperature_min)
 	{
 		mode = ROLLING_UP;
-	} 
-	else 
+	}
+	else
 	{
 		mode = WAITING;
 	}
-	
-	_delay_ms(100);
-	return temperature;
 }
 
-
+/*
+ * check if light sensitivity is normal,
+ * when to high or low act on it
+ */
 void check_light()
 {
+	// first calculate the average over 2 measurement times
 	uint8_t temp = light_sensitivity;
-	light_sensitivity = get_adc_value(lightSensor);
-	light_sensitivity = calc_ligth(light_sensitivity);
-
-	_delay_ms(100);
+	uint8_t raw_value = get_adc_value(lightSensor);
 	
-	if (light_sensitivity > 5)
+	if (raw_value == -1)
 	{
-		if (light_sensitivity >= light_max)
-		{
-			mode = ROLLING_DOWN;
-		}
-		else if (light_sensitivity <= light_min)
-		{
-			mode = ROLLING_UP;
-		}			
-		else
-		{
-			mode = WAITING;
-		}
-	}						
+		return;
+	}
+	if (temp > 0) {
+		temp = temp + raw_value;
+		raw_value = temp / 2;
+	}
+	
+	light_sensitivity = calc_ligth(raw_value);
+	
+	if (light_sensitivity >= light_max)
+	{
+		mode = ROLLING_DOWN;
+	}
+	else if (light_sensitivity <= light_min)
+	{
+		mode = ROLLING_UP;
+	}
 }
 
-void check_received() {
-	
+void check_received() 
+{
 	uint8_t r = uart_recieve();
 	_delay_us(25);
-	//uart_transmit_char(r);
+	uart_transmit_char(r);
 	
-	switch (r) {
+	switch (r)
+	{
 		case ROLLER:
 			d_modes = ROLLER;
 		break;
@@ -179,11 +241,13 @@ void check_received() {
 		case NONE:
 			d_modes = NONE;
 		break;
-		}
+	}
 	
-	uint8_t *data;
-	if (d_modes != NONE) {
-		switch (d_modes) {
+	if (d_modes != NONE)
+	{
+		uint8_t *data;
+		switch (d_modes)
+		{
 			case ROLLER:
 				data = insert_data_from_pyhton(ROLLER);
 				distant_min = data[0];
@@ -199,7 +263,10 @@ void check_received() {
 				d_modes = NONE;
 			break;
 			case TEMPERATURE:
-				ID = 7777;
+				data = insert_data_from_pyhton(TEMPERATURE);
+				temperature_min = data[0];
+				temperature_max = data[1];
+				free(data);
 				d_modes = NONE;
 			break;
 			case COMMANDO:
@@ -207,26 +274,33 @@ void check_received() {
 				
 				uint8_t received = uart_recieve();
 				_delay_us(50);
-				//uart_transmit_char(received);
-				if (received >= 48 && received <= 57) {	// ASCII 0-9
+				
+				if (received >= 48 && received <= 57)	// ASCII 0-9
+				{	
 					ID = from_ascii_to_digit(received);
-				} else if (received == 100) {		// ASCII d
-					mode = ROLLING_DOWN;
-				} else if (received == 117) {		// ASCII u
-					mode = ROLLING_UP;
-				} else if (received == 115) {		// ASCII s
-					mode = STOP_ROLLING;
+				}
+				else if (received == 100)				// ASCII d
+				{		
+					mode = ROLLING_DOWN;       
+				}
+				else if (received == 117)				// ASCII u
+				{		
+					mode = ROLLING_UP;		   
+				}
+				else if (received == 115)				// ASCII s
+				{		
+					mode = STOP_ROLLING;      
 				}
 								
 				d_modes = NONE;
 			break;
 		}
-	}	
+	}
 	d_modes = NONE;
 }
 
-void send_info() {
-	
+void send_info()
+{
 	uart_transmit_char('#');
 	uart_transmit_int(ID);
 	uart_transmit_char('.');
@@ -242,17 +316,16 @@ void send_info() {
 	uart_transmit_char('%');
 	uart_transmit_int(ID);
 	uart_transmit_char('.');
-	uart_transmit_int(25);							// change to variable temperature
+	uart_transmit_int(temperature);							// change to variable temperature
 	uart_transmit_char('%');
-}		
-
-					
-
+}
 
 void roll_down(void)
 {
 	while(distance <= distant_max && mode != STOP_ROLLING)
 	{
+		check_received();
+		send_info();
 		PORTD ^= (1 << YELLOW_LED);
 		if(distance >= distant_max || distance <= distant_min)
 		{
@@ -270,7 +343,9 @@ void roll_down(void)
 void roll_up(void)
 {
 	while(distance >= distant_min && mode != STOP_ROLLING)
-	{
+	{	
+		check_received();
+		send_info();
 		PORTD ^= (1 << YELLOW_LED);
 		if(distance >= distant_max || distance <= distant_min)
 		{
@@ -284,27 +359,6 @@ void roll_up(void)
 	mode = WAITING;
 }
 
-
-uint16_t calc_cm(uint16_t counter)
-{
-	// Min 2cm - Max 70cm
-	uint16_t microSec = counter / 16;
-	return (microSec/58.2);
-}
-
-void measure_distance() 
-{
-	gv_echo = BEGIN;			// Set gv_echo to BEGIN
-	PORTD |= _BV(trigPin);		// Set trigPin to 1 -> send pulse
-	_delay_us(12);				// Wait for pulse to complete
-	PORTD &= ~(1<<trigPin);		// Clear PORTD (trigPin & LEDs)
-	PORTD &= ~(1<<echoPin);
-	_delay_ms(30);				// Wait to make sure the signal of the pulse has been returned to echo
-	
-	distance = calc_cm(gv_counter);
-	show_distance(distance);
-}
-
 int main(void)
 {	
 	init_ext_int();		// Init external interrupts (INT1)
@@ -313,21 +367,23 @@ int main(void)
 	init_adc();			// Init analog
 	uart_init();		// Init uart (setup serial usb connection)
 	
-	int tasks[5];
+	int tasks[4];
 	
-	SCH_Init_T0();	 // Enable scheduler
-	// check light intensity every 10ms * 100 = 1sec with zero delay
-	tasks[0] = SCH_Add_Task(check_light,0,100);
-	tasks[1] = SCH_Add_Task(check_temperature,0,200); // check temperature in celcius
+	uint8_t quick = 10;
+	uint8_t demonstration = 1;
 	
-	// check every 10ms * 2 = 20ms if python has updated some data
-	// 1000ms/20ms = 50 pakketjes per seconde worden er verstuurd
-	tasks[2] = SCH_Add_Task(check_received,0,5);				
+	if (demonstration == 1)		// increase speed for a quick demonstration
+	{
+		quick = 1;	
+	}
 	
-	tasks[3] = SCH_Add_Task(send_info,0,100);	// 10ms * 100 = 1000ms = 1sec		
-	
+	tasks[0] = SCH_Add_Task(check_received, 0, 10*quick);		// check every 10ms * 100 = 1000ms if python has updated some data
+	tasks[1] = SCH_Add_Task(check_light, 0, 300*quick);			// check light intensity every 10ms * 3000 = 30 sec with zero delay
+	tasks[2] = SCH_Add_Task(check_temperature, 0, 400*quick);		// check temperature in celcius every 10ms * 4000 = 40 sec with zero delay
+	tasks[3] = SCH_Add_Task(send_info, 0, 600*quick);				// 10ms * 6000 = 60 sec
+		
 	sei();				// Set interrupt flag
-	_delay_ms(50);	 // Make sure everything is initialized
+	_delay_ms(50);		// Make sure everything is initialized
 	
 	reset_display();	// Clear display
 	

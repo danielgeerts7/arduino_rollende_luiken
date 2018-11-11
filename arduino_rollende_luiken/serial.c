@@ -7,8 +7,8 @@
 
 #include "serial.h"
 
-void uart_init(void) {
-	
+void uart_init(void) 
+{
 	UBRR0H = 0;
 	UBRR0L = UBBRVAL;
 	UCSR0A = 0;
@@ -30,16 +30,19 @@ void uart_transmit_char (unsigned char data)	// send as char, example: data=126 
 	UDR0 = data;
 }
 
-void uart_transmit_int(unsigned int data) {		// send as int, example: data=3 -> python receives '3'
+void uart_transmit_int(unsigned int data)
+{		// send as int, example: data=3 -> python receives '3'
 	float honderdtal = data / 100;
-	if (honderdtal >= 1) {
+	if (honderdtal >= 1) 
+	{
 		honderdtal += 48;
 		uart_transmit_char(honderdtal);
 	}
 	
 	float tiental = data % 100;
 	tiental = tiental / 10;
-	if (tiental >= 1) {
+	if (tiental >= 1) 
+	{
 		tiental += 48;
 		uart_transmit_char(tiental);
 	}
@@ -49,7 +52,8 @@ void uart_transmit_int(unsigned int data) {		// send as int, example: data=3 -> 
 	uart_transmit_char(rest);
 }
 
-int from_ascii_to_digit(char a){
+int from_ascii_to_digit(char a)
+{
 	return a - 48;
 }
 
@@ -57,14 +61,16 @@ int calc_to_the_power(int nr_scale, int exponent)
 {
 	int power = 1;
 
-	for (int i = 0; i < exponent; ++i) {
+	for (int i = 0; i < exponent; ++i) 
+	{
 		power *= nr_scale;
 	}
 
 	return(power);
 }
 
-uint16_t sum_array_elements(uint8_t size, uint8_t list[]) {
+uint16_t sum_array_elements(uint8_t size, uint8_t list[])
+{
 	uint16_t result = 0;
 	
 	for (int i = 0; i < size; i++)
@@ -75,7 +81,8 @@ uint16_t sum_array_elements(uint8_t size, uint8_t list[]) {
 	return result;
 }
 
-uint8_t* insert_data_from_pyhton(uint8_t from_sensor) {
+uint8_t* insert_data_from_pyhton(uint8_t from_sensor) 
+{
 	uint8_t running = 1;
 	uint8_t isMin = 1;
 	uint8_t mincount = 0;
@@ -85,29 +92,37 @@ uint8_t* insert_data_from_pyhton(uint8_t from_sensor) {
 	uint8_t max[3];
 	uint8_t received = 0;
 	
-	while (running == 1 && from_sensor != -1) {
+	while (running == 1 && from_sensor != -1) 
+	{
 		received = 0;
 		received = uart_recieve();
 		_delay_us(15);
 		//uart_transmit_char(received);
 		
-		if (received != from_sensor) {
-			if (received >= 48 && received <= 57) {			// ASCII 0-9
-				if (isMin == 1) {
+		if (received != from_sensor) 
+		{
+			if (received >= 48 && received <= 57) // ASCII 0-9
+			{			
+				if (isMin == 1) 
+				{
 					result = from_ascii_to_digit(received);
 					min[mincount] = result;
 					mincount++;
-				} else {
+				} 
+				else 
+				{
 					result = from_ascii_to_digit(received);
 					max[maxcount] = result;
 					maxcount++;
 				}
 			}
-			if (received == 46 && isMin == 1) {				// ASCII .
+			if (received == 46 && isMin == 1) // ASCII .
+			{			
 				isMin = 0;
 			}
 		}
-		if (received == from_sensor && isMin == 0) {
+		if (received == from_sensor && isMin == 0) 
+		{
 			running = 0;
 		}
 	}
