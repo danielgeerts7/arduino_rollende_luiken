@@ -37,8 +37,8 @@ volatile double temperature;		//temperature in Celsius
 uint8_t distant_max = 65;			//max distant roller shutter
 uint8_t distant_min = 5;			//min distant roller shutter
 uint8_t light_min = 15;		//min light intensity
-uint16_t light_max = 65;	//max light intensity
-uint16_t temperature_max = 30; // set max temperature
+uint8_t light_max = 65;	//max light intensity
+uint8_t temperature_max = 30; // set max temperature
 uint8_t temperature_min = 10;	// set minimum temperature
 
 // setting up mode for arduino
@@ -160,8 +160,10 @@ void measure_distance(void)
 void check_temperature(void)
 {	
 	// first calculate the average over 2 measurement times
-	uint8_t temp = temperature_sensor;
+	uint8_t temp = temperature;
 	double raw_value = get_adc_value(temperature_sensor); // get value from adc port
+	raw_value = calc_ligth(raw_value);
+	
 	if (raw_value == -1)
 	{
 		return;
@@ -170,8 +172,7 @@ void check_temperature(void)
 		temp = temp + raw_value;
 		raw_value = temp / 2;
 	}
-	
-	temperature = calc_temperature(raw_value);			 // calculate the temperature	
+	temperature = raw_value;			 // calculate the temperature	
 	
 	if (temperature >= temperature_max)				 // compare temperature to decide if
 	{												 // the rolling shutter needs to roll down or roll up
