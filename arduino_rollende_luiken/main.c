@@ -160,7 +160,7 @@ void measure_distance(void)
 void check_temperature(void)
 {	
 	// first calculate the average over 2 measurement times
-	uint8_t temp = temperature;
+	double temp = temperature;
 	double raw_value = get_adc_value(temperature_sensor); // get value from adc port
 	raw_value = calc_ligth(raw_value);
 	
@@ -195,7 +195,7 @@ void check_temperature(void)
 void check_light()
 {
 	// first calculate the average over 2 measurement times
-	uint8_t temp = light_sensitivity;
+	double temp = light_sensitivity;
 	double raw_value = get_adc_value(lightSensor);
 	raw_value = calc_ligth(raw_value);
 	
@@ -301,7 +301,7 @@ void check_received()
 }
 
 void send_info()
-{
+{	
 	uart_transmit_char('#');
 	uart_transmit_int(ID);
 	uart_transmit_char('.');
@@ -371,15 +371,16 @@ int main(void)
 	int tasks[4];
 	
 	uint8_t quick = 10;
-	uint8_t demonstration = 1;
+	uint8_t demonstration = 0;
 	
 	if (demonstration == 1)		// increase speed for a quick demonstration
 	{
 		quick = 1;	
 	}
 	
-	tasks[0] = SCH_Add_Task(check_received, 0, 10*quick);		// check every 10ms * 100 = 1000ms if python has updated some data
-	tasks[1] = SCH_Add_Task(check_light, 0, 300*quick);			// check light intensity every 10ms * 3000 = 30 sec with zero delay
+	// If using light sensor without combination with temperature then commend a taks out
+	tasks[0] = SCH_Add_Task(check_received, 0, 10*quick);			// check every 10ms * 100 = 1000ms if python has updated some data
+	tasks[1] = SCH_Add_Task(check_light, 0, 300*quick);				// check light intensity every 10ms * 3000 = 30 sec with zero delay
 	tasks[2] = SCH_Add_Task(check_temperature, 0, 400*quick);		// check temperature in celcius every 10ms * 4000 = 40 sec with zero delay
 	tasks[3] = SCH_Add_Task(send_info, 0, 600*quick);				// 10ms * 6000 = 60 sec
 		
