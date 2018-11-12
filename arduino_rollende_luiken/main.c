@@ -195,7 +195,8 @@ void check_light()
 {
 	// first calculate the average over 2 measurement times
 	uint8_t temp = light_sensitivity;
-	uint8_t raw_value = get_adc_value(lightSensor);
+	double raw_value = get_adc_value(lightSensor);
+	raw_value = calc_ligth(raw_value);
 	
 	if (raw_value == -1)
 	{
@@ -205,8 +206,7 @@ void check_light()
 		temp = temp + raw_value;
 		raw_value = temp / 2;
 	}
-	
-	light_sensitivity = calc_ligth(raw_value);
+	light_sensitivity = raw_value;
 	
 	if (light_sensitivity >= light_max)
 	{
